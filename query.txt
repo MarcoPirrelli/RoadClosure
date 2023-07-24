@@ -11,12 +11,24 @@ return count(distinct j) as junctions, count(distinct r) as routes
 match (j:RoadJunction)-[r:ROUTE]-() set j.status = 'active', r.status = 'active'
 
 
--Projection:
+-Projection with all streets:
+
+CALL gds.graph.project.cypher(
+                        "fullGraph",
+                        "MATCH (n:RoadJunction) RETURN id(n) AS id, n.lat AS lat, n.lon AS lon",
+                        "MATCH ()-[r:ROUTE]->() with min(r.AADT) as min_AADT,max(r.AADT) as max_AADT,max(r.distance) as max_dist,min(r.distance) as min_dist 
+                        MATCH (n)-[r:ROUTE]->(m) RETURN id(n) AS source, id(m) AS target,
+                        0.5 * toFloat((r.AADT-min_AADT)/(max_AADT-min_AADT)) + 0.5 * toFloat((r.distance-min_dist)/(max_dist-min_dist)) as traffic, r.AADT as AADT, r.distance as distance, type(r) as type")
+
+
+-Projection without closed streets:
 
 CALL gds.graph.project.cypher(
                         "graph",
                         "MATCH (n:RoadJunction) where n.status = 'active' RETURN id(n) AS id, n.lat AS lat, n.lon AS lon",
-                        "MATCH ()-[r:ROUTE]->() with min(r.AADT) as min_AADT,max(r.AADT) as max_AADT,max(r.distance) as max_dist,min(r.distance) as min_dist MATCH (n)-[r:ROUTE]->(m) WHERE r.status = 'active' RETURN id(n) AS source, id(m) AS target, 0.5 * toFloat((r.AADT-min_AADT)/(max_AADT-min_AADT)) + 0.5 * toFloat((r.distance-min_dist)/(max_dist-min_dist)) as traffic, r.AADT as AADT, r.distance as distance, type(r) as type")
+                        "MATCH ()-[r:ROUTE]->() with min(r.AADT) as min_AADT,max(r.AADT) as max_AADT,max(r.distance) as max_dist,min(r.distance) as min_dist 
+                        MATCH (n)-[r:ROUTE]->(m) WHERE r.status = 'active' RETURN id(n) AS source, id(m) AS target,
+                        0.5 * toFloat((r.AADT-min_AADT)/(max_AADT-min_AADT)) + 0.5 * toFloat((r.distance-min_dist)/(max_dist-min_dist)) as traffic, r.AADT as AADT, r.distance as distance, type(r) as type")
 
 
 -Approximate Average shortest path length & Diameter:
@@ -54,3 +66,36 @@ call gds.shortestPath.dijkstra.stream('graph', {
 })
 yield totalCost
 return avg(totalCost) as average, max(totalCost) as max
+
+-Approximate avg shortest path within bad area:
+
+match (closed:RoadJunction)-[:ROUTE {status:"closed"}]-()
+match (nearby:RoadJunction {status:"active"})
+with closed, nearby, point.distance(closed.location, nearby.location) as dist
+where dist <= 500
+with collect(distinct nearby) as a
+match (r1:RoadJunction {status: "active"}) where r1 in a
+with a, r1, rand() as rand order by rand limit 100
+with collect(r1) as c1, a
+match (r2:RoadJunction {status: "active"}) where r2 in a
+with c1, r2, rand() as rand order by rand limit 100
+unwind c1 as r1
+match (r1), (r2) where r1 <> r2
+with r1, r2, rand() as rand
+order by rand limit 5000
+
+call gds.shortestPath.dijkstra.stream('fullGraph', {
+    relationshipTypes: ['ROUTE'],
+    sourceNode: id(r1),
+    targetNode: id(r2),
+    relationshipWeightProperty: 'distance'
+})
+yield totalCost as costBefore
+call gds.shortestPath.dijkstra.stream('graph', {
+    relationshipTypes: ['ROUTE'],
+    sourceNode: id(r1),
+    targetNode: id(r2),
+    relationshipWeightProperty: 'distance'
+})
+yield totalCost as costAfter
+return avg(costBefore) as averageBefore, avg(costAfter) as averageAfter
