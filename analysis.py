@@ -137,6 +137,32 @@ class App:
                                 """)
             return result.values()[0]
 
+    def get_p99(self, limit):
+        with self.driver.session() as session:
+            result = session.run("""
+                                match ()-[r:ROUTE]-()
+                                with distinct r order by r.AADT desc limit $limit
+                                return r.AADT order by r.AADT limit 1
+                                """, limit=limit)
+            return result.values()[0][0]
+            
+
+    def high_traffic(self, p99):
+        with self.driver.session() as session:
+            result = session.run("""
+                                match ()-[r:ROUTE {status: "closed"}]-()
+                                with distinct r
+                                with sum(r.AADT) as redirectedTotal
+                                match ()-[r:ROUTE {status: "active"}]-()
+                                with distinct r, redirectedTotal
+                                with redirectedTotal, sum(r.AADT) as unchangedTotal
+                                match ()-[r:ROUTE {status: "active"}]-()
+                                with distinct r, r.AADT*(1+redirectedTotal/unchangedTotal) as newAADT
+                                where newAADT > $p99
+                                return count(r)
+                                """, p99=p99)
+            return result.values()[0][0]
+
 if __name__ == "__main__":
     app = App()
     print("Running graph analysis...")
@@ -172,6 +198,17 @@ if __name__ == "__main__":
         before, after = app.pathing_targeted()
         print("- Within areas nearby closed roads, the average path length is {:.1f} m".format(after))
         print("\tWhereas it was {:.1f} m before the road closure".format(before))
+
+    limit = int(rou_tot*0.01)
+    p99 = app.get_p99(limit)
+    high_traffic_new = app.high_traffic(p99)
+    print()
+    print("- Considering roads within the 99th percentile of AADT as high traffic")
+    print("\tWhen all roads are open, the 99th percentile is: {} AADT".format(p99))
+    print("\tWhen all roads are open, there are {} high traffic routes".format(limit))
+    if jun != jun_tot or rou!=rou_tot:
+        print("- Blocked off traffic is redirected to active routes")
+        print("\tIn this scenario {} routes are high traffic".format(high_traffic_new, p99))
 
     app.delete_projected_graph()
     app.delete_full_projected_graph()
