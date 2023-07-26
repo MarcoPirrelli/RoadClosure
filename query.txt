@@ -99,3 +99,14 @@ call gds.shortestPath.dijkstra.stream('graph', {
 })
 yield totalCost as costAfter
 return avg(costBefore) as averageBefore, avg(costAfter) as averageAfter
+
+- Roads with traffic higher than the natural 99th percentile
+
+match ()-[r:ROUTE {status: "closed"}]->()
+with sum(r.AADT) as redirectedTotal
+match ()-[r:ROUTE {status: "active"}]->()
+with redirectedTotal, sum(r.AADT) as unchangedTotal
+match ()-[r:ROUTE {status: "active"}]->()
+with r, r.AADT*(1+redirectedTotal/unchangedTotal) as newAADT
+where newAADT > 8596.64
+return count(r)

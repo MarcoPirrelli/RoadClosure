@@ -140,8 +140,8 @@ class App:
     def get_p99(self, limit):
         with self.driver.session() as session:
             result = session.run("""
-                                match ()-[r:ROUTE]-()
-                                with distinct r order by r.AADT desc limit $limit
+                                match ()-[r:ROUTE]->()
+                                with r order by r.AADT desc limit $limit
                                 return r.AADT order by r.AADT limit 1
                                 """, limit=limit)
             return result.values()[0][0]
@@ -150,14 +150,12 @@ class App:
     def high_traffic(self, p99):
         with self.driver.session() as session:
             result = session.run("""
-                                match ()-[r:ROUTE {status: "closed"}]-()
-                                with distinct r
+                                match ()-[r:ROUTE {status: "closed"}]->()
                                 with sum(r.AADT) as redirectedTotal
-                                match ()-[r:ROUTE {status: "active"}]-()
-                                with distinct r, redirectedTotal
+                                match ()-[r:ROUTE {status: "active"}]->()
                                 with redirectedTotal, sum(r.AADT) as unchangedTotal
-                                match ()-[r:ROUTE {status: "active"}]-()
-                                with distinct r, r.AADT*(1+redirectedTotal/unchangedTotal) as newAADT
+                                match ()-[r:ROUTE {status: "active"}]->()
+                                with r, r.AADT*(1+redirectedTotal/unchangedTotal) as newAADT
                                 where newAADT > $p99
                                 return count(r)
                                 """, p99=p99)
