@@ -18,18 +18,21 @@ Running graph analysis...
 
 - Weakly connected components: 15
 
-- Approximate average shortest path length: 151.6 hops
-- Approximate diameter: 410
+- Approximate average shortest path length: 159.0 hops
+- Approximate diameter: 407
 
-- Approximate average distance: 5658.6 m
-- Approximate max distance: 15110.5 m
+- Approximate average distance: 6015.3 m
+- Approximate max distance: 18060.1 m
 
-- Within areas nearby closed roads, the average path length is 3582.5 m
-        Whereas it was 3259.6 m before the road closure
+- Within areas nearby closed roads, the average path length is 3764.4 m
+        Whereas it was 3479.5 m before the road closure
 
 - Considering roads within the 99th percentile of AADT as high traffic
-        When all roads are open, the 99th percentile is: 8596.64 AADT
+        When all roads are open, the 99th percentile is: 8596.6 AADT
         When all roads are open, there are 342 high traffic routes
 - Blocked off traffic is redirected to active routes
-        In this scenario 367 routes are high traffic
+        In this scenario 707 routes have increased traffic, with a total length of 29.7 km
+        354 routes are now high traffic
+        The 99th percentile has shifted to 8736.4 AADT (101.6% compared to before)
+        The closed road that impacted the most nearby streets is Via Codroipo (osmid=26831593), with 59 streets affected
 ```
