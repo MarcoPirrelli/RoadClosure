@@ -137,7 +137,14 @@ class App:
                                 """)
             return result.values()[0]
 
-    def get_p99(self, limit):
+    def set_newAADT(self):
+        with self.driver.session() as session:
+            result = session.run("""
+                                match ()-[r:ROUTE]->()
+                                set r.newAADT = r.AADT
+                                """)
+                                 
+    def get_normal_p99(self, limit):
         with self.driver.session() as session:
             result = session.run("""
                                 match ()-[r:ROUTE]->()
@@ -145,21 +152,47 @@ class App:
                                 return r.AADT order by r.AADT limit 1
                                 """, limit=limit)
             return result.values()[0][0]
+        
+    def get_p99(self, limit):
+        with self.driver.session() as session:
+            result = session.run("""
+                                match ()-[r:ROUTE {status:"active"}]->()
+                                with r order by r.newAADT desc limit $limit
+                                return r.newAADT order by r.newAADT limit 1
+                                """, limit=limit)
+            return result.values()[0][0]
             
+    def redistribute_traffic(self):
+        with self.driver.session() as session:
+            result = session.run("""
+                                match ()-[c:ROUTE {status: "closed"}]->()-[:ROUTE*..4]-()-[a:ROUTE {status:"active"}]->()
+                                with c, collect(distinct a) as collection
+                                with c, collection, size(collection) as num
+                                unwind collection as increasing
+                                match ()-[increasing]->()
+                                set increasing.newAADT = increasing.newAADT + c.AADT/num
+                                with c, num order by num desc
+                                return c.osmid, c.name, num limit 1
+                                """)
+            return result.values()[0]
 
     def high_traffic(self, p99):
         with self.driver.session() as session:
-            result = session.run("""
-                                match ()-[r:ROUTE {status: "closed"}]->()
-                                with sum(r.AADT) as redirectedTotal
+            result = session.run("""                                
                                 match ()-[r:ROUTE {status: "active"}]->()
-                                with redirectedTotal, sum(r.AADT) as unchangedTotal
-                                match ()-[r:ROUTE {status: "active"}]->()
-                                with r, r.AADT*(1+redirectedTotal/unchangedTotal) as newAADT
-                                where newAADT > $p99
+                                where r.newAADT > $p99
                                 return count(r)
                                 """, p99=p99)
             return result.values()[0][0]
+
+    def traffic_changes(self):
+        with self.driver.session() as session:
+            result = session.run("""                                
+                                match ()-[c:ROUTE {status: "active"}]->()
+                                where c.newAADT > c.AADT
+                                return count(c) as numStreets, sum(toFloat(c.length)) as totLen
+                                """)
+            return result.values()[0]
 
 if __name__ == "__main__":
     app = App()
@@ -198,15 +231,23 @@ if __name__ == "__main__":
         print("\tWhereas it was {:.1f} m before the road closure".format(before))
 
     limit = int(rou_tot*0.01)
-    p99 = app.get_p99(limit)
-    high_traffic_new = app.high_traffic(p99)
+    normal_p99 = app.get_normal_p99(limit)
     print()
     print("- Considering roads within the 99th percentile of AADT as high traffic")
-    print("\tWhen all roads are open, the 99th percentile is: {} AADT".format(p99))
+    print("\tWhen all roads are open, the 99th percentile is: {:.1f} AADT".format(normal_p99))
     print("\tWhen all roads are open, there are {} high traffic routes".format(limit))
     if jun != jun_tot or rou!=rou_tot:
         print("- Blocked off traffic is redirected to active routes")
-        print("\tIn this scenario {} routes are high traffic".format(high_traffic_new, p99))
+        app.set_newAADT()
+        offender_id, offender_name, offender_num = app.redistribute_traffic()
+        num_streets, tot_len = app.traffic_changes()
+        high_traffic_new = app.high_traffic(normal_p99)
+        print("\tIn this scenario {} routes have increased traffic, with a total length of {:.1f} km".format(num_streets, tot_len/1000))
+        print("\t{} routes are now high traffic".format(high_traffic_new))
+        p99 = app.get_p99(int(rou*0.01))
+        print("\tThe 99th percentile has shifted to {:.1f} AADT ({:.1%} compared to before)".format(p99, p99/normal_p99))
+        print("\tThe closed road that impacted the most nearby streets is {} (osmid={}), with {} streets affected".format(offender_name, offender_id, offender_num))
+        
 
     app.delete_projected_graph()
     app.delete_full_projected_graph()
